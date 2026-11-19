@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=BF Launcher
+GenericName=Battlefield 3 & 4 Launcher
+Comment=Battlefield 3 & 4 via EA app (Proton) with Battlelog server browser
+Comment[de]=Battlefield 3 und 4 über EA App (Proton) mit Battlelog-Serverbrowser
+Exec=bf-launcher
+Icon=applications-games
+Terminal=false
+Categories=Game;
+Keywords=Battlefield;Battlelog;EA;BF3;BF4;

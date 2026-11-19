@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BF Launcher</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">BF</span><span>Launcher</span></div>
+    <div class="ea-status" id="ea-status"><span class="dot"></span><span class="txt"></span></div>
+    <div class="top-actions">
+      <button class="ghost" id="btn-library" data-i18n="btnLibrary" data-i18n-title="btnLibraryTitle"></button>
+      <button class="ghost" id="btn-stop" data-i18n="btnStop" data-i18n-title="btnStopTitle"></button>
+      <button class="ghost" id="btn-settings" data-i18n="btnSettings"></button>
+    </div>
+  </header>
+
+  <div class="banner update" id="update" hidden>
+    <span class="msg"></span>
+    <button class="primary small" id="btn-update"></button>
+  </div>
+
+  <div class="banner" id="banner" hidden>
+    <span class="msg"></span>
+    <button class="ghost small" id="banner-close" data-i18n-aria-label="close">✕</button>
+  </div>
+
+  <div class="task" id="task" hidden>
+    <span class="label"></span>
+    <div class="bar"><div class="fill"></div></div>
+  </div>
+
+  <main>
+    <!-- Einrichtung / Anmeldung -->
+    <section id="setup" class="panel" hidden>
+      <h1 data-i18n="setupTitle"></h1>
+      <p class="lead" data-i18n="setupLead"></p>
+      <ol class="steps">
+        <li id="step-umu">
+          <div class="step-head"><span class="badge"></span><h3>umu-launcher</h3></div>
+          <p class="hint" data-i18n="umuHint"></p>
+          <code class="cmd">sudo pacman -S umu-launcher</code>
+        </li>
+        <li id="step-ea">
+          <div class="step-head"><span class="badge"></span><h3 data-i18n="eaInstallTitle"></h3></div>
+          <p class="hint" data-i18n="eaInstallHint"></p>
+          <button class="primary" id="btn-install-ea" data-i18n="eaInstallTitle"></button>
+        </li>
+        <li id="step-login">
+          <div class="step-head"><span class="badge"></span><h3 data-i18n="loginTitle"></h3></div>
+          <p class="hint" data-i18n="loginHint"></p>
+          <button class="primary" id="btn-start-ea"></button>
+        </li>
+      </ol>
+    </section>
+
+    <!-- Spieleauswahl -->
+    <section id="library" hidden>
+      <h1 data-i18n="libraryTitle"></h1>
+      <div class="cards">
+        <article class="card" data-game="bf3">
+          <div class="art bf3"><span class="num">3</span></div>
+          <div class="body">
+            <h2>Battlefield 3</h2>
+            <p class="status">–</p>
+            <div class="progress" hidden><div class="fill"></div></div>
+            <div class="actions">
+              <button class="primary play" data-i18n="serverBrowser"></button>
+              <button class="secondary install" data-i18n="install"></button>
+            </div>
+          </div>
+        </article>
+        <article class="card" data-game="bf4">
+          <div class="art bf4"><span class="num">4</span></div>
+          <div class="body">
+            <h2>Battlefield 4</h2>
+            <p class="status">–</p>
+            <div class="progress" hidden><div class="fill"></div></div>
+            <div class="actions">
+              <button class="primary play" data-i18n="serverBrowser"></button>
+              <button class="secondary install" data-i18n="install"></button>
+            </div>
+          </div>
+        </article>
+      </div>
+      <p class="footnote" data-i18n-html="footnote"></p>
+    </section>
+  </main>
+
+  <!-- Einstellungen -->
+  <dialog id="settings">
+    <form id="settings-form" method="dialog">
+      <h2 data-i18n="btnSettings"></h2>
+      <label><span data-i18n="setPrefix"></span>
+        <input name="prefix" required spellcheck="false">
+      </label>
+      <label><span data-i18n="setProton"></span>
+        <input name="proton" required spellcheck="false">
+      </label>
+      <label><span data-i18n="setLanguage"></span>
+        <select name="language">
+          <option value="auto" data-i18n="langAuto"></option>
+          <option value="de">Deutsch</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+      <label><span data-i18n="setLocale"></span>
+        <select name="locale">
+          <option value="de">Deutsch</option>
+          <option value="en">English</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="it">Italiano</option>
+          <option value="pl">Polski</option>
+          <option value="ru">Русский</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" name="true_players"> <span data-i18n="setTruePlayers"></span></label>
+      <label class="check"><input type="checkbox" name="check_updates"> <span data-i18n="setUpdates"></span></label>
+      <div class="row version">
+        <span><span data-i18n="version"></span> <span id="version"></span></span>
+        <span class="spacer"></span>
+        <button type="button" class="ghost" id="btn-check-updates" data-i18n="checkNow"></button>
+      </div>
+      <div class="row">
+        <button type="button" class="ghost" id="btn-logs" data-i18n="openLogs"></button>
+        <span class="spacer"></span>
+        <button type="button" class="secondary" id="settings-cancel" data-i18n="cancel"></button>
+        <button type="submit" class="primary" data-i18n="save"></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

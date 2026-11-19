@@ -1,0 +1,78 @@
+# Baut den Launcher bei jedem Push auf main und veröffentlicht ihn im Release "latest".
+# Der Launcher vergleicht seinen Build-Commit mit version.json und bietet dann ein Update an.
+#
+# Builds the launcher on every push to main and publishes it to the "latest" release.
+# The launcher compares its build commit with version.json and offers an update.
+name: Build & release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: |
+          cargo clippy --locked -- -D warnings
+          cargo test --locked
+
+      - name: Build
+        env:
+          BFL_COMMIT: ${{ github.sha }}
+          BFL_REPO: ${{ github.repository }}
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          mkdir dist
+          cp target/release/bf-launcher dist/bf-launcher-x86_64-linux
+          (cd dist && sha256sum bf-launcher-x86_64-linux > bf-launcher-x86_64-linux.sha256)
+          jq -n \
+            --arg commit "$GITHUB_SHA" \
+            --arg version "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" \
+            --arg date "$(git log -1 --format=%cI)" \
+            --arg message "$(git log -1 --format=%s)" \
+            '{commit: $commit, version: $version, date: $date, message: $message}' > dist/version.json
+          cat dist/version.json
+
+      - name: Publish release "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${GITHUB_SHA::7}"
+          if gh release view latest >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
+            # Programm und Prüfsumme zuerst, version.json zuletzt: Clients sehen ein Update erst,
+            # wenn die Dateien vollständig bereitliegen.
+            gh release upload latest dist/bf-launcher-x86_64-linux dist/bf-launcher-x86_64-linux.sha256 --clobber
+            gh release upload latest dist/version.json --clobber
+            gh release edit latest --title "Latest build ($short)"
+          else
+            gh release create latest dist/* --target "$GITHUB_SHA" \
+              --title "Latest build ($short)" \
+              --notes "Automatically built from the latest commit on main. / Automatisch aus dem neuesten Commit auf main gebaut."
+          fi

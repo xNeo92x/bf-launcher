@@ -23,6 +23,7 @@ pub const REPO: &str = match option_env!("BFL_REPO") {
 };
 pub const BUILD_COMMIT: &str = env!("BFL_COMMIT");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_TIME: &str = env!("BFL_COMMIT_TIME");
 
 const ASSET: &str = "bf-launcher-x86_64-linux";
 const MAX_BINARY: u64 = 64 * 1024 * 1024;
@@ -36,6 +37,20 @@ pub struct UpdateInfo {
     pub date: String,
     #[serde(default)]
     pub message: String,
+    /// Commit-Zeitpunkt (Unix-Zeit)
+    #[serde(default)]
+    pub timestamp: Option<u64>,
+}
+
+/// Nur ein neuerer Stand gilt als Update (Schutz vor Downgrades durch veraltete Daten).
+fn is_newer(remote: &UpdateInfo, local_commit: &str, local_time: u64) -> bool {
+    if remote.commit == local_commit {
+        return false;
+    }
+    match remote.timestamp {
+        Some(t) if local_time > 0 => t > local_time,
+        _ => true,
+    }
 }
 
 pub fn short(commit: &str) -> &str {
@@ -59,8 +74,39 @@ fn exe() -> Result<PathBuf> {
         .context("current_exe")
 }
 
-fn asset_url(name: &str) -> String {
-    format!("https://github.com/{REPO}/releases/download/latest/{name}")
+// Hinweis: Die öffentlichen Links github.com/…/releases/download/latest/… werden von
+// GitHub mehrere Minuten zwischengespeichert. Deshalb fragen wir das Release über die
+// API ab und laden jede Datei über ihre eindeutige Asset-ID (immer der aktuelle Stand).
+
+#[derive(Deserialize)]
+struct Release {
+    assets: Vec<Asset>,
+}
+
+#[derive(Deserialize)]
+struct Asset {
+    id: u64,
+    name: String,
+}
+
+/// Asset-IDs des Releases "latest" (eine API-Anfrage).
+fn release_assets() -> Result<Vec<Asset>> {
+    let mut resp = agent(Duration::from_secs(20))
+        .get(format!("https://api.github.com/repos/{REPO}/releases/tags/latest"))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .call()
+        .with_context(|| tr!("Update-Prüfung fehlgeschlagen", "Update check failed"))?;
+    let text = resp.body_mut().with_config().limit(1 << 20).read_to_string()?;
+    Ok(serde_json::from_str::<Release>(&text)?.assets)
+}
+
+fn asset_url(assets: &[Asset], name: &str) -> Result<String> {
+    let a = assets
+        .iter()
+        .find(|a| a.name == name)
+        .with_context(|| format!("release asset {name} missing"))?;
+    Ok(format!("https://api.github.com/repos/{REPO}/releases/assets/{}", a.id))
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -74,21 +120,23 @@ fn agent(timeout: Duration) -> ureq::Agent {
 
 /// Fragt das neueste Release ab. `Some` = es gibt einen anderen Stand als den laufenden.
 pub fn check() -> Result<Option<UpdateInfo>> {
-    let mut resp = agent(Duration::from_secs(20))
-        .get(asset_url("version.json"))
-        .call()
-        .with_context(|| tr!("Update-Prüfung fehlgeschlagen", "Update check failed"))?;
-    let text = resp.body_mut().with_config().limit(64 * 1024).read_to_string()?;
-    let info: UpdateInfo = serde_json::from_str(&text)?;
+    let assets = release_assets()?;
+    let mut buf = Vec::new();
+    download(&asset_url(&assets, "version.json")?, 64 * 1024, &mut buf, &|_| {})?;
+    let info: UpdateInfo = serde_json::from_slice(&buf)?;
     anyhow::ensure!(
         info.commit.len() >= 7 && info.commit.chars().all(|c| c.is_ascii_hexdigit()),
         "invalid version.json"
     );
-    Ok((info.commit != BUILD_COMMIT).then_some(info))
+    let local_time = BUILD_TIME.parse().unwrap_or(0);
+    Ok(is_newer(&info, BUILD_COMMIT, local_time).then_some(info))
 }
 
 fn download(url: &str, limit: u64, mut out: impl Write, progress: &dyn Fn(f64)) -> Result<u64> {
-    let mut resp = agent(Duration::from_secs(600)).get(url).call()?;
+    let mut resp = agent(Duration::from_secs(600))
+        .get(url)
+        .header("Accept", "application/octet-stream")
+        .call()?;
     let total = resp
         .headers()
         .get("content-length")
@@ -124,8 +172,9 @@ pub fn apply(progress: &dyn Fn(f64)) -> Result<()> {
     let tmp = dir.join(".bf-launcher.update");
 
     // Prüfsumme zuerst (klein), dann die Programmdatei.
+    let assets = release_assets()?;
     let mut sum = Vec::new();
-    download(&asset_url(&format!("{ASSET}.sha256")), 4096, &mut sum, &|_| {})?;
+    download(&asset_url(&assets, &format!("{ASSET}.sha256"))?, 4096, &mut sum, &|_| {})?;
     let expected = String::from_utf8_lossy(&sum)
         .split_whitespace()
         .next()
@@ -141,7 +190,7 @@ pub fn apply(progress: &dyn Fn(f64)) -> Result<()> {
                 "No write access to {d} – please reinstall the launcher with install.sh"
             )
         })?;
-        download(&asset_url(ASSET), MAX_BINARY, &mut file, progress)?;
+        download(&asset_url(&assets, ASSET)?, MAX_BINARY, &mut file, progress)?;
         file.sync_all()?;
         drop(file);
 
@@ -180,4 +229,22 @@ pub fn restart() -> ! {
         let _ = std::process::Command::new(exe).spawn();
     }
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(commit: &str, ts: Option<u64>) -> UpdateInfo {
+        UpdateInfo { commit: commit.into(), version: String::new(), date: String::new(), message: String::new(), timestamp: ts }
+    }
+
+    #[test]
+    fn newer_only() {
+        assert!(!is_newer(&info("aaaaaaa", Some(200)), "aaaaaaa", 100));
+        assert!(is_newer(&info("bbbbbbb", Some(200)), "aaaaaaa", 100));
+        assert!(!is_newer(&info("bbbbbbb", Some(50)), "aaaaaaa", 100)); // älter -> kein Downgrade
+        assert!(is_newer(&info("bbbbbbb", None), "aaaaaaa", 100)); // alte version.json
+        assert!(is_newer(&info("bbbbbbb", Some(50)), "unknown", 0)); // lokal unbekannt
+    }
 }

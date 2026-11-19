@@ -44,7 +44,9 @@ jobs:
         env:
           BFL_COMMIT: ${{ github.sha }}
           BFL_REPO: ${{ github.repository }}
-        run: cargo build --release --locked
+        run: |
+          export BFL_COMMIT_TIME="$(git log -1 --format=%ct)"
+          cargo build --release --locked
 
       - name: Package
         run: |
@@ -56,7 +58,8 @@ jobs:
             --arg version "$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')" \
             --arg date "$(git log -1 --format=%cI)" \
             --arg message "$(git log -1 --format=%s)" \
-            '{commit: $commit, version: $version, date: $date, message: $message}' > dist/version.json
+            --argjson timestamp "$(git log -1 --format=%ct)" \
+            '{commit: $commit, version: $version, date: $date, message: $message, timestamp: $timestamp}' > dist/version.json
           cat dist/version.json
 
       - name: Publish release "latest"

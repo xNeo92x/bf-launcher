@@ -98,6 +98,7 @@ By default the launcher uses the newest installed **GE-Proton**. Alternatively, 
 RUST_LOG=bf_launcher=debug bf-launcher          # verbose logs
 BFL_DEBUG=1 bf-launcher                         # WebKit developer tools (right click → Inspect)
 BFL_SELFTEST=bf4 bf-launcher                    # checks player counts and the EA app bridge on Battlelog
+bf-launcher --version | --check-update | --update   # version / update from the command line
 ```
 
 ## Notes and limits

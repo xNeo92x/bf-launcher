@@ -98,6 +98,7 @@ Als Proton wird automatisch die neueste installierte **GE-Proton**-Version verwe
 RUST_LOG=bf_launcher=debug bf-launcher          # ausführliche Logs
 BFL_DEBUG=1 bf-launcher                         # WebKit-Entwicklerwerkzeuge (Rechtsklick → Untersuchen)
 BFL_SELFTEST=bf4 bf-launcher                    # prüft Spielerzahlen und EA-App-Brücke auf Battlelog
+bf-launcher --version | --check-update | --update   # Version / Update über die Befehlszeile
 ```
 
 ## Hinweise und Grenzen

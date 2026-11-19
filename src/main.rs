@@ -552,12 +552,48 @@ fn battlelog_init_script(cfg: &Config) -> String {
     )
 }
 
+fn run_cli(arg: &str) -> Result<()> {
+    let current = format!("{} ({})", updater::VERSION, updater::short(updater::BUILD_COMMIT));
+    match arg {
+        "--version" | "-V" => println!("bf-launcher {current}"),
+        "--check-update" => match updater::check()? {
+            Some(u) => {
+                let (new, msg) = (updater::short(&u.commit), &u.message);
+                println!("{}", tr!("Update verfügbar: {current} → {new} ({msg})", "Update available: {current} → {new} ({msg})"));
+            }
+            None => println!("{}", tr!("Aktuell: {current}", "Up to date: {current}")),
+        },
+        "--update" => match updater::check()? {
+            Some(u) => {
+                updater::apply(&|_| {})?;
+                let new = updater::short(&u.commit);
+                println!("{}", tr!("Aktualisiert auf {new}.", "Updated to {new}."));
+            }
+            None => println!("{}", tr!("Aktuell: {current}", "Up to date: {current}")),
+        },
+        _ => {
+            println!(
+                "bf-launcher {current}\n\n  --version        {}\n  --check-update   {}\n  --update         {}",
+                tr!("Version anzeigen", "Show version"),
+                tr!("Auf Updates prüfen", "Check for updates"),
+                tr!("Update installieren", "Install update"),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     updater::remember_exe();
     let cfg = Config::load();
     i18n::init(&cfg.language);
+
+    // Befehlszeile / command line: --version, --check-update, --update
+    if let Some(arg) = std::env::args().nth(1) {
+        return run_cli(&arg);
+    }
     if !Config::path().exists() {
         let _ = cfg.save();
     }

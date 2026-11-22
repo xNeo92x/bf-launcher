@@ -18,13 +18,22 @@
   const L = OPTS.lang === "de"
     ? { back: "← Launcher", onlyReal: "nur echte Zahl", hideEmpty: "leere ausblenden",
         unavailable: "Echte Spielerzahl nicht abrufbar",
+        limited: "Battlelog-Limit erreicht – Abfrage pausiert",
         tip: (c, s) => `Echte Spieler: ${c} (Battlelog zeigt ${s})` }
     : { back: "← Launcher", onlyReal: "real count only", hideEmpty: "hide empty",
         unavailable: "Real player count unavailable",
+        limited: "Battlelog rate limit reached – paused",
         tip: (c, s) => `Real players: ${c} (Battlelog shows ${s})` };
   const STORE_KEY = "bfl.settings";
-  const CACHE_MS = 20000;
-  const MAX_PARALLEL = 6;
+  // Battlelog begrenzt Anfragen pro IP (HTTP 429). Deshalb sparsam abfragen:
+  const CACHE_MS = 120000;       // Ergebnis 2 Minuten gültig
+  const FAIL_RETRY_MS = 90000;   // fehlgeschlagene Abfragen frühestens nach 90 s erneut
+  const MAX_PARALLEL = 2;
+  const BUCKET_MAX = 6;          // Token-Bucket: Spitze 6, danach ...
+  const REFILL_MS = 4000;        // ... höchstens 1 Anfrage alle 4 s (≈ 15/min)
+  const BACKOFF_START = 60000;   // Pause nach 429: 1 min, verdoppelt bis 10 min
+  const BACKOFF_MAX = 600000;
+  const VIEW_MARGIN = 400;       // nur sichtbare Zeilen (± Rand) abfragen
 
   const game = (location.pathname.match(/^\/(bf3|bf4)\b/) || [])[1] || null;
 
@@ -65,14 +74,28 @@
   }
 
   // ---- Echte Spielerzahlen --------------------------------------------------
-  const cache = new Map();   // guid -> {t, count}
+  const cache = new Map();   // guid -> {t, count|null}
   const pending = new Map(); // guid -> Promise
-  const queue = [];
+  const queue = [];          // [{guid, resolve}]
   let running = 0;
+  let tokens = BUCKET_MAX;
+  let lastRefill = Date.now();
+  let pausedUntil = 0;
+  let backoff = BACKOFF_START;
+  let pumpTimer = null;
+
+  function cached(guid) {
+    const hit = cache.get(guid);
+    if (!hit) return undefined;
+    const age = Date.now() - hit.t;
+    if (hit.count !== null && age < CACHE_MS) return hit.count;
+    if (hit.count === null && age < FAIL_RETRY_MS) return null;
+    return undefined;
+  }
 
   function fetchCount(guid) {
-    const hit = cache.get(guid);
-    if (hit && Date.now() - hit.t < CACHE_MS) return Promise.resolve(hit.count);
+    const c = cached(guid);
+    if (c !== undefined) return Promise.resolve(c);
     if (pending.has(guid)) return pending.get(guid);
     const p = new Promise((resolve) => queue.push({ guid, resolve }));
     pending.set(guid, p);
@@ -80,24 +103,80 @@
     return p;
   }
 
+  function later(ms) {
+    if (pumpTimer) return;
+    pumpTimer = setTimeout(() => { pumpTimer = null; pump(); }, Math.max(50, ms));
+  }
+
   function pump() {
+    const now = Date.now();
+    const refill = now > lastRefill ? Math.floor((now - lastRefill) / REFILL_MS) : 0;
+    if (refill > 0) {
+      tokens = Math.min(BUCKET_MAX, tokens + refill);
+      lastRefill += refill * REFILL_MS;
+    }
+    if (now < pausedUntil) return later(pausedUntil - now);
     while (running < MAX_PARALLEL && queue.length) {
-      const { guid, resolve } = queue.shift();
+      if (tokens < 1) return later(REFILL_MS - (now - lastRefill));
+      tokens--;
+      const item = queue.shift();
       running++;
-      fetch(`/${game}/servers/getPlayersOnServer/pc/${encodeURIComponent(guid)}/`, {
+      fetch(`/${game}/servers/getPlayersOnServer/pc/${encodeURIComponent(item.guid)}/`, {
         credentials: "same-origin",
         headers: { "X-Requested-With": "XMLHttpRequest", "Accept": "application/json" },
       })
-        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-        .then((data) => {
-          const players = Array.isArray(data && data.players) ? data.players : [];
-          const count = players.length;
-          cache.set(guid, { t: Date.now(), count });
-          resolve(count);
+        .then((r) => {
+          if (r.status === 429 || r.status === 503) {
+            // Limit erreicht: alles pausieren, Anfrage später erneut versuchen.
+            // Nur einmal pro Pause verlängern (parallele 429 zählen nicht doppelt),
+            // danach ohne angesparte Tokens langsam wieder anlaufen.
+            if (Date.now() >= pausedUntil) {
+              pausedUntil = Date.now() + backoff;
+              backoff = Math.min(backoff * 2, BACKOFF_MAX);
+            }
+            tokens = 0;
+            lastRefill = pausedUntil;
+            queue.unshift(item);
+            setLimited(true);
+            return;
+          }
+          if (!r.ok) throw r.status;
+          return r.json().then((data) => {
+            backoff = BACKOFF_START;
+            setLimited(false);
+            const count = Array.isArray(data && data.players) ? data.players.length : 0;
+            cache.set(item.guid, { t: Date.now(), count });
+            pending.delete(item.guid);
+            item.resolve(count);
+          });
         })
-        .catch(() => resolve(null))
-        .finally(() => { running--; pending.delete(guid); pump(); });
+        .catch(() => {
+          cache.set(item.guid, { t: Date.now(), count: null });
+          pending.delete(item.guid);
+          item.resolve(null);
+        })
+        .finally(() => { running--; pump(); });
     }
+  }
+
+  let limited = false;
+  function setLimited(on) {
+    if (limited === on) return;
+    limited = on;
+    document.querySelectorAll(".bfl-real.bfl-wait").forEach((el) => {
+      el.title = on ? L.limited : "";
+    });
+  }
+
+  function inView(row) {
+    const r = row.getBoundingClientRect();
+    return r.bottom > -VIEW_MARGIN && r.top < window.innerHeight + VIEW_MARGIN && r.height > 0;
+  }
+
+  // Nur schreiben, wenn sich etwas ändert – sonst löst jede Aktualisierung den
+  // MutationObserver aus und es entsteht eine Schleife.
+  function setIfChanged(el, prop, value) {
+    if (el[prop] !== value) el[prop] = value;
   }
 
   function classify(real, shown) {
@@ -165,16 +244,17 @@
       if (!guid || !/^[0-9a-f-]{36}$/i.test(guid)) return;
       const info = ad.prepare(row);
       if (!info) return;
-      // Bereits für diese GUID und Anzeige erledigt?
-      const key = guid + ":" + info.shown;
-      if (row.dataset.bflKey === key && !info.real.classList.contains("bfl-wait")) return;
-      row.dataset.bflKey = key;
+      const c = cached(guid);
+      // Unsichtbare Zeilen ohne gültiges Ergebnis erst abfragen, wenn sie ins Bild kommen.
+      if (c === undefined && !inView(row)) return;
+      if (c === undefined && pending.has(guid) && row.dataset.bflWaiting === guid) return;
+      row.dataset.bflWaiting = guid;
       fetchCount(guid).then((count) => {
         if (!row.isConnected) return;
-        info.real.className = "bfl-real " + classify(count, info.shown);
-        info.real.textContent = count === null ? "?" : "[" + count + "]";
-        info.real.title = count === null ? L.unavailable : L.tip(count, info.shown);
-        row.classList.toggle("bfl-empty", count === 0);
+        setIfChanged(info.real, "className", "bfl-real " + classify(count, info.shown));
+        setIfChanged(info.real, "textContent", count === null ? "?" : "[" + count + "]");
+        setIfChanged(info.real, "title", count === null ? L.unavailable : L.tip(count, info.shown));
+        if (row.classList.contains("bfl-empty") !== (count === 0)) row.classList.toggle("bfl-empty", count === 0);
       });
     });
   }
@@ -308,7 +388,10 @@
       processRows();
       new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
       // Battlelog aktualisiert Listen teils ohne DOM-Austausch: regelmäßig nachziehen.
-      setInterval(() => { cache.clear(); document.querySelectorAll("[data-bfl-key]").forEach((r) => delete r.dataset.bflKey); schedule(); }, 30000);
+      // Abgelaufene Ergebnisse sichtbarer Zeilen gelegentlich auffrischen (Cache + Limit greifen).
+      setInterval(schedule, 30000);
+      window.addEventListener("scroll", schedule, { passive: true });
+      window.addEventListener("resize", schedule, { passive: true });
     }
   }
 

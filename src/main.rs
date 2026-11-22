@@ -196,6 +196,13 @@ const SELFTEST_JS: &str = r#"(async () => {
   out.bar = !!document.getElementById("bfl-bar");
   out.real = [...document.querySelectorAll(".bfl-real")].slice(0, 8).map(e => e.closest("td,div").innerText.replace(/\s+/g, " ").trim());
   out.realCount = document.querySelectorAll(".bfl-real").length;
+  out.realDone = document.querySelectorAll(".bfl-real:not(.bfl-wait)").length;
+  out.playerRequests = performance.getEntriesByType("resource").filter(e => e.name.includes("getPlayersOnServer")).length;
+  try {
+    const g = location.pathname.split("/")[1], lang = location.pathname.split("/")[2];
+    const r = await fetch(`/${g}/${lang}/servers/getServerRegions/pc/`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+    out.regions = r.status;
+  } catch (e) { out.regions = "FEHLER " + e; }
   window.__bflSelftest = JSON.stringify(out);
 })(); 0"#;
 

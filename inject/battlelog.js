@@ -16,11 +16,11 @@
 
   const OPTS = window.__BFL_OPTS || { truePlayers: true, lang: "en" };
   const L = OPTS.lang === "de"
-    ? { back: "← Launcher", onlyReal: "nur echte Zahl", hideEmpty: "leere ausblenden",
+    ? { back: "← Launcher", firefox: "In Firefox öffnen", onlyReal: "nur echte Zahl", hideEmpty: "leere ausblenden",
         unavailable: "Echte Spielerzahl nicht abrufbar",
         limited: "Battlelog-Limit erreicht – Abfrage pausiert",
         tip: (c, s) => `Echte Spieler: ${c} (Battlelog zeigt ${s})` }
-    : { back: "← Launcher", onlyReal: "real count only", hideEmpty: "hide empty",
+    : { back: "← Launcher", firefox: "Open in Firefox", onlyReal: "real count only", hideEmpty: "hide empty",
         unavailable: "Real player count unavailable",
         limited: "Battlelog rate limit reached – paused",
         tip: (c, s) => `Real players: ${c} (Battlelog shows ${s})` };
@@ -310,6 +310,7 @@
       mkBtn("BF3", () => ipc({ cmd: "switch_game", game: "bf3" }), game === "bf3"),
       mkBtn("BF4", () => ipc({ cmd: "switch_game", game: "bf4" }), game === "bf4"),
     );
+    if (game) bar.append(mkBtn(L.firefox, () => ipc({ cmd: "open_in_firefox", game })));
     bar.children[1].className = "sep";
     if (OPTS.truePlayers && game) {
       const sep = document.createElement("div");

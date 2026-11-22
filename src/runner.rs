@@ -16,7 +16,7 @@ use std::time::Duration;
 pub const EA_INSTALLER_URL: &str =
     "https://origin-a.akamaihd.net/EA-Desktop-Client-Download/installer-releases/EAappInstaller.exe";
 
-const EA_APP_REL: &str = "drive_c/Program Files/Electronic Arts/EA Desktop/EA Desktop/EADesktop.exe";
+const EA_APP_DIR: &str = "drive_c/Program Files/Electronic Arts/EA Desktop";
 
 pub fn umu_available() -> bool {
     find_in_path("umu-run").is_some()
@@ -30,8 +30,27 @@ fn find_in_path(bin: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// Pfad zu EADesktop.exe. Neuere EA-App-Versionen liegen in einem Unterordner mit
+/// Versionsnummer (…/EA Desktop/13.832.0.6345/EA Desktop/EADesktop.exe), ältere direkt in
+/// …/EA Desktop/EA Desktop/. Bei mehreren Versionen gewinnt die höchste.
 pub fn ea_app_exe(cfg: &Config) -> PathBuf {
-    cfg.prefix.join(EA_APP_REL)
+    let base = cfg.prefix.join(EA_APP_DIR);
+    let mut versioned: Vec<(Vec<u32>, PathBuf)> = fs::read_dir(&base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let ver: Vec<u32> = name.split('.').map(|p| p.parse().ok()).collect::<Option<_>>()?;
+            let exe = e.path().join("EA Desktop/EADesktop.exe");
+            exe.is_file().then_some((ver, exe))
+        })
+        .collect();
+    versioned.sort();
+    versioned
+        .pop()
+        .map(|(_, p)| p)
+        .unwrap_or_else(|| base.join("EA Desktop/EADesktop.exe"))
 }
 
 pub fn ea_app_installed(cfg: &Config) -> bool {
@@ -183,6 +202,55 @@ pub fn stop_prefix(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+/// Öffnet Battlelog in Firefox mit einem eigenen Profil, das sich als Windows ausgibt.
+///
+/// Das Profil liegt getrennt vom normalen Firefox-Profil des Benutzers
+/// (~/.local/share/bf-launcher/firefox-profile). Firefox spricht die lokale API der
+/// EA App direkt an (keine Brücke nötig), genau wie bei einer Windows-Installation.
+pub fn open_firefox(url: &str, user_agent: &str) -> Result<()> {
+    if !url.starts_with("https://battlelog.battlefield.com/") {
+        bail!("invalid url");
+    }
+    let firefox = find_in_path("firefox").with_context(|| {
+        tr!(
+            "Firefox nicht gefunden. Installiere es mit: sudo pacman -S firefox",
+            "Firefox not found. Install it with: sudo pacman -S firefox"
+        )
+    })?;
+    let profile = data_dir().join("firefox-profile");
+    fs::create_dir_all(&profile)?;
+    // user.js wird bei jedem Start von Firefox angewendet; nur feste Werte, keine Eingaben.
+    let prefs = [
+        ("general.useragent.override", format!("\"{user_agent}\"")),
+        ("general.platform.override", "\"Win32\"".to_string()),
+        ("general.oscpu.override", "\"Windows NT 10.0\"".to_string()),
+        ("general.appversion.override", "\"5.0 (Windows)\"".to_string()),
+        ("browser.shell.checkDefaultBrowser", "false".to_string()),
+        ("browser.aboutwelcome.enabled", "false".to_string()),
+        ("browser.startup.homepage_override.mstone", "\"ignore\"".to_string()),
+        ("datareporting.policy.dataSubmissionEnabled", "false".to_string()),
+        ("toolkit.telemetry.reportingpolicy.firstRun", "false".to_string()),
+    ];
+    let mut js = String::from("// Automatisch erzeugt vom BF Launcher – wird bei jedem Start überschrieben.\n");
+    for (k, v) in prefs {
+        js.push_str(&format!("user_pref(\"{k}\", {v});\n"));
+    }
+    fs::write(profile.join("user.js"), js)?;
+
+    let mut child = Command::new(firefox)
+        .arg("--no-remote")
+        .arg("--profile")
+        .arg(&profile)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .with_context(|| tr!("Firefox starten", "Starting Firefox"))?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
 /// Öffnet eine http(s)-URL im Standardbrowser des Systems.
 pub fn open_external(url: &str) {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -205,5 +273,25 @@ pub fn open_folder(path: &Path) {
     let _ = fs::create_dir_all(path);
     if let Ok(mut c) = Command::new("xdg-open").arg(path).stdin(Stdio::null()).spawn() {
         std::thread::spawn(move || c.wait());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_versioned_ea_app() {
+        let tmp = std::env::temp_dir().join(format!("bfl-test-{}", std::process::id()));
+        let base = tmp.join(EA_APP_DIR);
+        for v in ["13.9.0.1", "13.832.0.6345"] {
+            let d = base.join(v).join("EA Desktop");
+            fs::create_dir_all(&d).unwrap();
+            File::create(d.join("EADesktop.exe")).unwrap();
+        }
+        let cfg = Config { prefix: tmp.clone(), ..Config::default() };
+        assert!(ea_app_exe(&cfg).ends_with("13.832.0.6345/EA Desktop/EADesktop.exe"));
+        assert!(ea_app_installed(&cfg));
+        fs::remove_dir_all(&tmp).unwrap();
     }
 }

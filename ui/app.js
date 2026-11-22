@@ -24,6 +24,8 @@
       startEaWaiting: "EA App läuft – bitte dort anmelden",
       libraryTitle: "Deine Spiele",
       serverBrowser: "Serverbrowser",
+      openFirefox: "In Firefox öffnen",
+      openFirefoxTitle: "Battlelog in Firefox öffnen (eigenes Profil, gibt sich als Windows aus)",
       install: "Herunterladen & installieren",
       footnote: "Im Serverbrowser (Battlelog) meldest du dich beim ersten Mal mit deinem EA-Konto auf der EA-Anmeldeseite an. Hinter jeder Spielerzahl steht in Klammern die <b>echte</b> Anzahl verbundener Spieler. „Beitreten“ startet das Spiel über die EA App.",
       setPrefix: "Wine/Proton-Präfix",
@@ -73,6 +75,8 @@
       startEaWaiting: "EA app is running – please sign in there",
       libraryTitle: "Your games",
       serverBrowser: "Server browser",
+      openFirefox: "Open in Firefox",
+      openFirefoxTitle: "Open Battlelog in Firefox (separate profile, identifies as Windows)",
       install: "Download & install",
       footnote: "In the server browser (Battlelog), sign in with your EA account on EA's sign-in page the first time. The number in brackets after each player count is the <b>real</b> number of connected players. “Join” starts the game through the EA app.",
       setPrefix: "Wine/Proton prefix",
@@ -194,6 +198,7 @@
       prog.hidden = g.status !== "downloading";
       $(".fill", prog).style.width = Math.round((g.progress || 0) * 100) + "%";
       $(".play", card).hidden = g.status !== "installed";
+      $(".firefox", card).hidden = g.status !== "installed";
       const install = $(".install", card);
       install.hidden = g.status !== "not_installed";
       install.disabled = busy;
@@ -251,6 +256,7 @@
     document.querySelectorAll(".card").forEach((card) => {
       const game = card.dataset.game;
       $(".play", card).addEventListener("click", () => send({ cmd: "open_server_browser", game }));
+      $(".firefox", card).addEventListener("click", () => send({ cmd: "open_in_firefox", game }));
       $(".install", card).addEventListener("click", () => send({ cmd: "install_game", game }));
     });
 

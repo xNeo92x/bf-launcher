@@ -148,6 +148,7 @@ enum UiCommand {
     OpenEaLibrary,
     InstallGame { game: Game },
     OpenServerBrowser { game: Game },
+    OpenInFirefox { game: Game },
     SaveSettings { settings: Settings },
     OpenLogs,
     DismissMessage,
@@ -162,6 +163,7 @@ enum UiCommand {
 enum BattlelogCommand {
     BackToLauncher,
     SwitchGame { game: Game },
+    OpenInFirefox { game: Game },
     /// Weiterleitung einer Anfrage an die EA App (siehe ea_api::bridge_target).
     EaRequest {
         id: u64,
@@ -460,6 +462,16 @@ fn handle_ui(cmd: UiCommand, shared: &SharedRef, proxy: &EventLoopProxy<UserEven
                 ))
             });
         }
+        UiCommand::OpenInFirefox { game } => {
+            let locale = shared.lock().unwrap().cfg.locale.clone();
+            let res = runner::open_firefox(&game.server_browser_url(&locale), USER_AGENT).map(|_| {
+                tr!(
+                    "Battlelog wurde in Firefox geöffnet (eigenes Profil, gibt sich als Windows aus).",
+                    "Battlelog opened in Firefox (separate profile, identifies as Windows)."
+                )
+            });
+            set_result(shared, proxy, res);
+        }
         UiCommand::OpenServerBrowser { game } => {
             let locale = shared.lock().unwrap().cfg.locale.clone();
             let _ = webview.load_url(&game.server_browser_url(&locale));
@@ -737,6 +749,9 @@ fn main() -> Result<()> {
             Event::UserEvent(UserEvent::Battlelog(cmd)) => match cmd {
                 BattlelogCommand::BackToLauncher => {
                     let _ = webview.load_url(LAUNCHER_URL);
+                }
+                BattlelogCommand::OpenInFirefox { game } => {
+                    handle_ui(UiCommand::OpenInFirefox { game }, &shared, &proxy, &webview);
                 }
                 BattlelogCommand::SwitchGame { game } => {
                     let locale = shared.lock().unwrap().cfg.locale.clone();

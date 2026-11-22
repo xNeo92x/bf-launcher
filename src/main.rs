@@ -33,7 +33,10 @@ use wry::http::{Request, Response, header};
 use wry::{NewWindowResponse, WebContext, WebViewBuilder};
 
 const LAUNCHER_URL: &str = "bfl://localhost/";
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
+/// Battlelog erlaubt den Spielstart serverseitig nur für Windows-Browser (32-Bit-Kennung,
+/// siehe Dialog "Unable to launch the game from this device"). Das Spiel läuft unter Proton
+/// ohnehin als Windows-Programm, daher meldet sich die WebView als Firefox unter Windows.
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; rv:140.0) Gecko/20100101 Firefox/140.0";
 const BATTLELOG_HOST: &str = "battlelog.battlefield.com";
 
 const INDEX_HTML: &str = include_str!("../ui/index.html");
@@ -202,6 +205,15 @@ const SELFTEST_JS: &str = r#"(async () => {
     const g = location.pathname.split("/")[1], lang = location.pathname.split("/")[2];
     const r = await fetch(`/${g}/${lang}/servers/getServerRegions/pc/`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
     out.regions = r.status;
+    const ctx = window.Surface && Surface.globalContext;
+    out.loggedInBattlelog = !!(ctx && ctx.session && ctx.session.isLoggedIn);
+    out.isWindows = !!(ctx && ctx.staticContext.detectedBrowser.isWindows);
+    out.isWin64 = !!(ctx && ctx.staticContext.detectedBrowser.isWin64);
+    if (out.loggedInBattlelog) {
+      const pr = await fetch(`/${g}/launcher/playablepersona/`, { headers: { "X-Requested-With": "XMLHttpRequest" } });
+      const pj = await pr.json().catch(() => ({}));
+      out.allowRunGame = pj && pj.data ? pj.data.allowRunGame : "status " + pr.status;
+    }
   } catch (e) { out.regions = "FEHLER " + e; }
   window.__bflSelftest = JSON.stringify(out);
 })(); 0"#;

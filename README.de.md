@@ -104,6 +104,7 @@ bf-launcher --version | --check-update | --update   # Version / Update über die
 ## Hinweise und Grenzen
 
 - **Spielbarkeit unter Proton:** Ob BF3/BF4 laufen, hängt von Proton und dem Anti-Cheat ab (PunkBuster/FairFight bzw. EA Javelin). Das kann EA jederzeit ändern. Der Launcher kann das nicht umgehen.
+- **Browser-Kennung:** Battlelog erlaubt den Spielstart nur aus Windows-Browsern (Prüfung auf dem Server, Dialog „Unable to launch the game from this device“). Unter Proton läuft das Spiel ohnehin als Windows-Programm, deshalb meldet sich der eingebettete Browser als Firefox unter Windows (32-Bit).
 - **Battlelog-Limit:** Battlelog sperrt eine IP zeitweise (HTTP 429), wenn sie zu viele Anfragen sendet. Solange die Sperre gilt, scheitert auch Battlelog selbst, zum Beispiel beim Regionsfilter. Der Launcher fragt echte Spielerzahlen deshalb nur für sichtbare Server ab, höchstens etwa 15 pro Minute, speichert sie 2 Minuten und pausiert bei HTTP 429 automatisch.
 - **Inoffizielle Endpunkte:** Battlelog-Endpunkte wie `getPlayersOnServer` und die lokale API der EA App sind nicht offiziell dokumentiert und können sich ändern.
 - **Lizenz der Vorlage:** Das BBLog-Plugin von Dendari92 hat keine Lizenz. Deshalb enthält der Launcher keinen Code daraus, nur eine eigene Umsetzung derselben Idee.
